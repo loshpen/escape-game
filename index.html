@@ -1,0 +1,412 @@
+<html>
+	<head>
+		<link href="https://fonts.googleapis.com/css?family=Fira+Mono" rel="stylesheet">
+		<style>
+			body {
+				background-color: lightblue;
+			}
+			.main {
+				margin: auto;
+				width: 800px;
+				height: 600px;
+				display: flex;
+				flex-direction: column;
+				background-color: lightgray;
+				font-family: 'Fira Mono', monospace;
+				font-size: 16px;
+				user-select: none;
+				cursor: default;
+			}
+			.box {
+				border: 1px solid black;
+				border-radius: 5px;
+				padding: 10px;
+			}
+			.description {
+				width: 100%;
+				height: 50%;
+				box-sizing: border-box;
+				background-color: black;
+				color: #00FF00;
+			}
+			.actions {
+				margin-top: 10px;
+				width: 100%;
+				height: 50%;
+				box-sizing: border-box;
+				background-color: black;
+				color: #00FF00;
+			}
+			.action:hover {
+				background-color: #00FF00;
+				color: black;
+				cursor: pointer;
+			}
+		</style>
+		<script type="text/javascript">
+			class Expression {
+				constructor(expr) {
+					this.expr = expr.replace(/\s+/g, '');
+				}
+
+				static deconstruct(expr) {
+					let regex = new RegExp(/^([a-z_0-9]+|[0-9]+|(\+|\-|\%|\*|\/|>=|<=|<|>|==|!=|AND|OR|NOT|\(|\)))/);
+					let deconstructed = [];
+
+					while (expr.length > 0) {
+						let matched = expr.match(regex);
+						deconstructed.push(matched[0]);
+						expr = expr.slice(matched[0].length);
+					}
+					return deconstructed;
+				}
+
+				static prepareForTranslation(params, deconstructed) {
+					let subbed = deconstructed.map(elem => {
+						if(elem === 'true' || elem === 'false')
+							return eval(elem);
+						if(elem.match(/^[a-z_]+/) !== null) {
+							if(elem in params)
+								return params[elem];
+							else
+								throw `${elem} value not found in calculation parameters!`
+						}
+						else if (elem.match(/^[0-9]+/) !== null)
+							return +elem;
+						else
+							return elem;
+					});
+					return subbed;
+				}
+
+				static get functions() {
+					return {
+						'%': {
+							func: (a, b) => a % b,
+							type: 'left',
+							priority: 5
+						},
+						'+': {
+							func: (a, b) => a + b,
+							type: 'left',
+							priority: 4
+						},
+						'-': {
+							func: (a, b) => a - b,
+							type: 'left',
+							priority: 4
+						},
+						'/': {
+							func: (a, b) => a / b,
+							type: 'left',
+							priority: 5
+						},
+						'*': {
+							func: (a, b) => a * b,
+							type: 'left',
+							priority: 5
+						},
+						'>=': {
+							func: (a, b) => a >= b,
+							type: 'left',
+							priority: 3
+						},
+						'<=': {
+							func: (a, b) => a <= b,
+							type: 'left',
+							priority: 3
+						},
+						'>': {
+							func: (a, b) => a > b,
+							type: 'left',
+							priority: 3
+						},
+						'<': {
+							func: (a, b) => a < b,
+							type: 'left',
+							priority: 3
+						},
+						'==': {
+							func: (a, b) => a == b,
+							type: 'left',
+							priority: 2
+						},
+						'!=': {
+							func: (a, b) => a != b,
+							type: 'left',
+							priority: 2
+						},
+						'AND': {
+							func: (a, b) => a && b,
+							type: 'left',
+							priority: 1
+						},
+						'OR': {
+							func: (a, b) => a || b,
+							type: 'left',
+							priority: 0
+						},
+						'NOT': {
+							func: (a) => !a,
+							type: 'right',
+							priority: 6
+						}
+					}
+				}
+
+				static toReversePolishNotation(input) {
+					let output = [];
+					let stack = []
+					while(input.length > 0) {
+						let symbol = input.shift();
+						if(typeof symbol === 'number' || typeof symbol === 'boolean') {
+							output.push(symbol);
+						}
+						else if(symbol in Expression.functions) {
+							while(  stack.length > 0
+									&& stack[stack.length-1] in Expression.functions
+									&& Expression.functions[stack[stack.length-1]].priority >= Expression.functions[symbol].priority
+									&& Expression.functions[stack[stack.length-1]].type === 'left')
+								output.push(stack.pop());
+							stack.push(symbol);
+						}
+						else if(symbol === '(')
+							stack.push(symbol);
+						else if(symbol = ')') {
+							while(stack.length > 0 && stack[stack.length-1] != '(')
+								output.push(stack.pop());
+							if (stack.length === 0)
+								throw 'No \'(\') found! Check expression for validity!';
+							else
+								stack.pop();
+						}
+					}
+					while(stack.length > 0) {
+						let top = stack.pop();
+						if(top === '(' || top === ')')
+							throw 'Mismatched parentheses!'
+						output.push(top);
+					}
+					return output;
+				}
+
+				static evaluate (input) {
+					let stack = [];
+
+					while(input.length > 0) {
+						let symbol = input.shift();
+
+						if(symbol in Expression.functions) {
+							let args = [];
+							let argsCount = Expression.functions[symbol].func.length;
+							while(argsCount > 0) {
+								args.unshift(stack.pop());
+								argsCount--;
+							}
+							let result = Expression.functions[symbol].func(...args);
+							stack.push(result);
+						}
+						else
+							stack.push(symbol);
+					}
+					return stack.pop();
+				}
+
+				calculate(params) {
+					let deconstructed = Expression.deconstruct(this.expr);
+					let prepared = Expression.prepareForTranslation(params, deconstructed);
+					let RPN = Expression.toReversePolishNotation(prepared);
+					let result = Expression.evaluate(RPN);
+					return result;
+				}
+			}
+
+			class WeightedRandom {
+				constructor(weights) {
+					this.weights = WeightedRandom.convertToIntegers(weights);
+				}
+
+				static getOutcomes(weights) {
+					let outcomes = {
+						sum: 0,
+						outcomeBounds: {}
+					};
+					for(let i in weights) {
+						outcomes.outcomeBounds[i] = {};
+						outcomes.outcomeBounds[i].start = outcomes.sum + 1;
+						outcomes.outcomeBounds[i].end = outcomes.sum + weights[i];
+						outcomes.sum += weights[i];
+					}
+					return outcomes;
+				}
+
+				static convertToIntegers(weights) {
+					let maxDigitsAfterPoint = 0;
+					for(let i in weights) {
+						if(weights[i].toString().indexOf('.') > 0)
+							maxDigitsAfterPoint = Math.max(maxDigitsAfterPoint, weights[i].toString().split('.')[1].length);
+					}
+					for(let i in weights) {
+						weights[i] *= Math.pow(10, maxDigitsAfterPoint);
+					}
+					return weights;
+				}
+
+				roll() {
+					let outcomes = WeightedRandom.getOutcomes(this.weights);
+					let random = Math.floor(Math.random() * outcomes.sum) + 1;
+					for(let i in outcomes.outcomeBounds) {
+						if(random >= outcomes.outcomeBounds[i].start && random <= outcomes.outcomeBounds[i].end) {
+							return i;
+						}
+					}
+				}
+			}
+
+			class Game {
+				constructor(url, json) {
+					if(!json)
+						this.loadJSON(url);
+					else
+						this.onJSONLoaded(json);
+				}
+
+				loadJSON(url) {
+					fetch(url).then(response => response.json())
+					.then(json => this.onJSONLoaded(json));
+
+				}
+
+				onJSONLoaded(json) {
+					this.quest = json;
+					this.variables = {};
+					this.resources = {};
+					this.descriptionBox = document.querySelector('.description');
+					this.actionsBox = document.querySelector('.actions');
+					this.updateDescriptionBox(this.quest.description);
+					this.createAction('Начать', this.quest.begin);
+					for(let resource in json.resources) {
+						this.variables[resource] = json.resources[resource].count;
+						let name = json.resources[resource].name;
+						if(name)
+							this.resources[resource] = name;
+					}
+				}
+
+				updateDescriptionBox(text) {
+					this.clearDescription();
+					if (typeof text === 'string')
+						this.addToDescription(text);
+					else if (Object.prototype.toString.apply(text) === '[object Array]') {
+						text.forEach(part => {
+							if (typeof part === 'string')
+								this.addToDescription(part);
+							else {
+								let expr = new Expression(part.expression);
+								let result = expr.calculate(this.variables);
+								if(result) {
+									this.addToDescription(part.text);
+								}
+							}
+						});
+					}
+				}
+
+				createAction(text, target) {
+					let action = document.createElement('div');
+					action.textContent = text;
+					action.classList.add('action');
+					action.addEventListener('click', () => this.onActionClicked(target));
+					this.actionsBox.append(action);
+				}
+
+				createActions(actions) {
+					for(let action in actions) {
+						let text = actions[action].text;
+						let chances = JSON.parse(JSON.stringify(actions[action].chances));
+						let possibleWays = []; 
+						chances.forEach((way) => {
+							if(way.expression) {
+								let expr = new Expression(way.expression);
+								let result = expr.calculate(this.variables);
+								if(result) {
+									possibleWays.push(way);
+								}
+							}
+							else
+								possibleWays.push(way);
+						});
+						let weights = {};
+						if(possibleWays.length === 0) {
+							continue;
+						}
+						possibleWays.forEach(way => {
+							weights[way.step] = way.weight;
+						});
+						let target = (new WeightedRandom(weights)).roll();
+						this.createAction(text, target);
+					}
+				}
+
+				clearDescription() {
+					this.descriptionBox.textContent = '';
+				}
+
+				addToDescription(text) {
+					this.descriptionBox.textContent += ` ${text}`;
+				}
+
+				clearActions() {
+					[].slice.call(this.actionsBox.children).forEach(el => el.remove());
+				}
+
+				onActionClicked(target) {
+					this.goToStep(this.quest.steps[target]);
+				}
+
+				updateVariables(variables) {
+					for(let variable in variables) {
+						let expr = new Expression(variables[variable]);
+						let result = expr.calculate(this.variables);
+						this.variables[variable] = result;
+					}
+				}
+
+				goToStep(step) {
+					this.updateDescriptionBox(step.description);
+					this.clearActions();
+					this.updateVariables(step.resources);
+					if(step.ways === undefined)
+						this.gameOver(step.win);
+					else
+						this.createActions(step.ways);
+				}
+
+				gameOver(win = false) {
+					this.clearActions();
+					let action = document.createElement('div');
+					if(win)
+						action.textContent = 'Вы прошли игру. Начать заново?';
+					else
+						action.textContent = 'Конец игры. Начать заново?';
+					action.classList.add('action');
+					action.addEventListener('click', () => {
+						this.clearActions();
+						new Game('', this.quest);
+					});
+					this.actionsBox.append(action);
+				}
+
+			}
+			document.addEventListener('DOMContentLoaded', function(){
+				new Game('https://gist.githubusercontent.com/loshpen/cd58192ac9df1cd23ef84e53b039ea80/raw');
+			});
+		</script>
+	</head>
+	<body>
+		<div class="main box">
+			<div class="description box">Загрузка...</div>
+			<div class="actions box"></div>
+		</div>
+	</body>
+</html>
